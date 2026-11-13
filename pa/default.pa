@@ -1,0 +1,6 @@
+.fail
+load-module module-native-protocol-unix socket=/home/hatch/workspace/win32-compat/pa/native auth-anonymous=1
+load-module module-native-protocol-tcp port=47140 auth-anonymous=1 auth-ip-acl=127.0.0.1
+load-module module-null-sink sink_name=game114 rate=48000 format=float32le channels=2 sink_properties=device.description=GameSink114
+load-module module-always-sink
+.nofail

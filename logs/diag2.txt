@@ -1,0 +1,1 @@
+strace path: /usr/bin/strace
