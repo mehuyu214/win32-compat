@@ -17,8 +17,8 @@ line (:113) has VM priority. Only light work below was done after the order.
 | Game | Before (play line) | Now (this line) | Evidence |
 |---|---|---|---|
 | Majikoi （真剣で私に恋しなさい！ 体験版） | ❌ FAILS — incomplete copy, no game exe | ⚠️ **Extraction FIXED** (complete tree incl. `まじこい.exe`); first boot attempt **segfaults** with the same signature as RE:D Cherish — diagnosis pending (hold) | logs/majikoi-extract.log, logs/majikoi1.log, shots/majikoi-90s.png (black) |
-| RE:D Cherish! （体験版プラス） | ❌ FAILS — qemu signal 11 after first-run dialog | Not yet re-run (hold). Log/import analysis done; shares Majikoi's crash signature | sanoba-play/logs/redcherish3.log |
-| Sakura no Toki （サクラノ刻 第I章体験版） | ⚠️ BOOTS-NO-TITLE — window opens, client area solid white | Not yet re-run (hold). Local copy prepared; exe imports d3d9.dll directly | sanoba-play/RESULTS.md §3 |
+| RE:D Cherish! （体験版プラス） | ❌ FAILS — qemu signal 11 after first-run dialog | ✅ **SOLVED at `max,-avx2`** (§T) — crash not reproduced; story progressed past first dialog, scene change + character dialog verified | logs/var-redcherish-avx2-20261114.log, shots/redcherish-avx2-20261114-*.png |
+| Sakura no Toki （サクラノ刻 第I章体験版） | ⚠️ BOOTS-NO-TITLE — window opens, client area solid white | ✅ **SOLVED (§V)** — boots to full title (§K); title input was dead because bare Xvfb has no window manager/activation; with twm on the display the title responds, story entered and advancing. (virgl render stack excluded as a factor, §U.) | §§K–V, shots/sakura-virgl3-*.png |
 | Sanoba Witch trial | ✅ BOOTS + TITLE + STORY | Regression target — re-verify after any proposed change | sanoba-play/RESULTS.md §1 |
 | Stella （喫茶ステラ） | ✅ BOOTS + TITLE + IN-GAME | Regression target — re-verify after any proposed change | sanoba-play/RESULTS.md §2 |
 
@@ -628,3 +628,114 @@ instruction emitted by llvmpipe's JIT when AVX2 is advertised.
   the hash) made this bisection possible at all.
 - Open: the late crash's co-factor X; whether RE:D Cherish shares
   this fix (untested — KK ordered Majikoi + Sakura only tonight).
+
+# 2026-11-14 successor shift (KK「全部やれ」08:20 JST)
+
+## T. RE:D Cherish! — SOLVED at `max,-avx2` (ESTABLISHED)
+
+Retest ordered by KK's「全部やれ」. Same fix as Majikoi: compat-local
+tools/q32sup-var with Q32_CPU=max,-avx2, prefix prefixes/redcherish-r1,
+DISPLAY :114, log logs/var-redcherish-avx2-20261114.log.
+
+- Run was SIGSTOP-frozen at the title menu by the predecessor for a
+  Sanoba capture window (sup 9598, game qemu 9600 + 4 helpers);
+  successor verified PIDs/cmdlines/environ (prefix, :114, max,-avx2)
+  and SIGCONT-resumed them — no relaunch needed.
+- Evidence chain (shots/redcherish-avx2-20261114-*.png):
+  menu1 (predecessor) full title art + menu → resume1 title intact
+  after unfreeze → start1 GAME START hover opens 「最初から」 →
+  start2 opening panorama → story1 play-mode select （本編をPLAYする
+  chosen) → story3 FIRST dialog line「――それはある日の朝。開店前の
+  こと。」→ story5 scene change (room interior) → story8 character
+  雪光 speaking dialog — multiple advances PAST the old crash point.
+- Old failure (baseline `max`): qemu signal 11 just after the first
+  dialog (sanoba-play/logs/redcherish3.log). Under max,-avx2 it did
+  NOT reproduce: 0 uncaught exceptions, game alive and progressing
+  through ~17 min process elapsed (≈6.5 min of active advancement
+  after unfreeze, 4+ dialog advances, 1 scene transition).
+- Observation (not a verdict): 8 handled c000001d faults on thread
+  0090 across the whole run (handle_syscall_fault, returned to user
+  mode), 4 of them noted before the freeze; count did not grow during
+  story advancement. Same handled-fault class as Majikoi's stack,
+  consistent with the shared AVX2-era JIT hypothesis (§S) — but for
+  RE:D the crash-avoidance is what is established, not the mechanism.
+- Verdict: RE:D Cherish! joins Majikoi — `max,-avx2` is the generic
+  fix for this crash class on this stack.
+
+## U. Sakura no Toki — virgl stack test: input STILL dead (render stack EXCLUDED)
+
+Last open axis from §Q. Compat-local virgl server (NOT the perf
+line's): virgl_test_server --use-egl-surfaceless, clean env
+(env -i; LD_LIBRARY_PATH = win32-perf virgl/usr/lib +
+virgl-libs/usr/lib x86_64; __EGL_VENDOR_LIBRARY_DIRS =
+virgl-libs egl_vendor.d), socket ~/workspace/win32-compat/virgl.sock,
+pid 12257, empty server log (healthy signature).
+Pre-flight (fix-first rule): raw GLX probe in-guest
+(tools/probe_glxswap.py, DISPLAY :114, GALLIUM_DRIVER=virpipe,
+VTEST_SOCKET_NAME=compat sock; logs/probe_glxswap-compat-virgl1.log):
+legacy ctx created, 5 swaps 89.5/5.5/1.9/2.3/1.7 ms, all err=0x0
+(then the probe's known cleanup bug — post-measurement).
+Run: scripts/launch-var.sh tag sakura-virgl2, prefix sakura-s1 (the
+baseline prefix), Q32_CPU=max, GALLIUM_DRIVER=virpipe,
+log logs/var-sakura-virgl2.log. (First attempt tag sakura-virgl1
+failed instantly: prefix `prefixes/sakura` is an empty stub —
+0-byte .reg files; baseline used sakura-s1. Recorded to avoid
+repeating the mistake.)
+- Boot: full title screen, pixel-perfect, in ≤150 s
+  (shots/sakura-virgl2-t150.png) — visibly faster than the llvmpipe
+  baseline's minutes-long fade. Rendering on virpipe confirmed
+  (server log: vtest client context created).
+- Input test (explicit focus on the game window first, the exact
+  baseline protocol): held click on Start 5 s → frame byte-identical
+  (md5 df642177…); held Return 5 s → identical; held Down 5 s +
+  Return 5 s → identical; hover over Start / Config 4 s → identical
+  (shots/sakura-virgl2-{click-start5,return5,down-return5,
+  hover-start,hover-config}.png, all md5 df642177…).
+- VERDICT: the render stack changes NOTHING for input. virgl is now
+  EXCLUDED alongside CPU model, audio clock, DLL gaps, device
+  creation, rendering itself, and X/focus delivery (§§K–P). The
+  engine does not even react to mouse hover, i.e. it is not polling
+  pointer position at the title. The block sits inside the engine's
+  input handling (GetAsyncKeyState/GetCursorPos/message-pump path
+  per import analysis; DI never acquired) regardless of GL stack.
+  Sakura title-input remains OPEN with no remaining environment
+  axis identified on this line.
+
+## V. Sakura no Toki — SOLVED: a window manager was the missing piece (ESTABLISHED)
+
+Run: tag sakura-virgl3, config IDENTICAL to §U (launch-var.sh,
+prefix sakura-s1, Q32_CPU=max, GALLIUM_DRIVER=virpipe, compat virgl
+server pid 14980, GLX probe re-verified err=0; log
+logs/var-sakura-virgl3.log). Title reached ≤110 s
+(shots/sakura-virgl3-t110.png, md5 df642177…, same frame as §U).
+Then, mid-run, ONE variable changed: **twm started on DISPLAY :114**
+(pid 15289, LC_ALL=C). twm reparented the game window (position
+28,23 → 28,42, title bar visible; shots/sakura-virgl3-twm1.png).
+Input retest (menu coordinates shifted +19 px by the frame):
+- Held click on Start (982,601) 5 s → STORY ENTERED: prologue text
+  pages (「La gazza ladra（泥棒カササギ）…」;
+  shots/sakura-virgl3-twm-click5.png).
+- Held Return 5 s → text ADVANCED to the next page
+  (shots/sakura-virgl3-twm-return5.png).
+- Further click/Return advances: in-game scene with full VN UI —
+  静流「いらっしゃい」(shots/sakura-virgl3-story1.png) → interior
+  scene, two sprites, dialog「あ、いや、キマイラの店主さんが
+  おかえりだって聞いていたので……」(shots/sakura-virgl3-story3.png).
+  Multiple scenes, sustained progression, game stable.
+A/B discipline: §U (same stack/prefix, NO WM) = every input and
+hover byte-identical dead; §§K–P (llvmpipe, no WM) = dead. WM
+presence is the only changed variable. **VERDICT: Sakura no Toki
+title input is FIXED, environment-side: run a window manager on
+the game display.** Generic fix for the win32 environment.
+Mechanism (HYPOTHESIS, consistent with all evidence, not proven at
+API level): the engine gates input polling on window
+activation/foreground state. On bare Xvfb there is no activation:
+xdotool windowactivate fails ("windowmanager claims not to
+support _NET_ACTIVE_WINDOW"), no WM_TAKE_FOCUS is ever delivered,
+so Wine's window is never activated and the engine ignores input
+even though KeyPress events reach Wine (§P +event). twm's ICCCM
+focus/activation supplies what the engine was waiting for.
+Remaining trivia (not blockers): whether activation also fixes
+the title on llvmpipe (untested — virgl was the test stack; the
+gate is render-independent per the A/B), and which exact Win32
+signal the engine keys on (WM_ACTIVATE vs foreground vs focus).
