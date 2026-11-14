@@ -739,3 +739,90 @@ Remaining trivia (not blockers): whether activation also fixes
 the title on llvmpipe (untested — virgl was the test stack; the
 gate is render-independent per the A/B), and which exact Win32
 signal the engine keys on (WM_ACTIVATE vs foreground vs focus).
+
+# 2026-11-14 remaining-items shift (KK 09:06 JST: solve everything besides Sanoba)
+
+## W. Stella — regression under current best recipe: WORKS (ESTABLISHED)
+
+Run: scripts/launch-var.sh tag stella-avx2-wm, prefix stella-v1,
+Q32_CPU=max,-avx2 (tools/q32sup-var), stock llvmpipe, **twm running
+on :114 from before boot** (pid 16784); log
+logs/var-stella-avx2-wm.log. The prior interrupted attempt (§
+compat-state, stopped at 08:49) had shown only a Wine file-open
+dialog at 60 s and no verdict; that dialog did NOT reappear.
+- t+90 s: twm-framed window, white client (boot fade stage;
+  shots/stella-avx2wm-t090.png).
+- t+240 s: full title screen 「喫茶ステラと死神の蝶 体験版」
+  with all menu items (shots/stella-avx2wm-t240.png).
+- Plain click on はじめから → story entered: first dialog
+  【声】「おーい、朝だよー。起きろー」 with full VN UI
+  (shots/stella-avx2wm-story-t300.png); a further click advanced
+  to 【昴晴】「ん？　んー……」(shots/stella-avx2wm-story-t330.png).
+- 0 uncaught exceptions in the log across the whole run; run
+  TERM-stopped cleanly afterwards (pgid 16794, all PIDs gone).
+VERDICT: Stella still works under max,-avx2 + WM — no regression
+from either the AVX2 removal (the Majikoi/RE:D fix) or the new
+WM-always recipe. The current best recipe (q32sup-var +
+max,-avx2 + twm) is confirmed on a third engine (Kirikiri).
+
+## X. Sakura no Toki — llvmpipe + WM: WORKS (recipe is render-independent, ESTABLISHED)
+
+Run: scripts/launch-var.sh tag sakura-llwm, prefix sakura-s1,
+Q32_CPU=max, STOCK llvmpipe (no virpipe), twm on :114 running
+from before boot; log logs/var-sakura-llwm.log.
+- t+115 s: window up (twm title bar 「I - Ver1.0.0」), white fade
+  stage (shots/sakura-llwm-t115.png); t+230 s: full title
+  (shots/sakura-llwm-t230.png, md5 96f65523…).
+- Input: held click 5 s on Start at the §V root coordinates
+  (982,601) → **STORY ENTERED**: prologue page 「La gazza ladra
+  （泥棒カササギ）」(shots/sakura-llwm-click601-t60.png); held
+  Return 5 s → text advanced to the next prologue page
+  (shots/sakura-llwm-return-advance.png). 0 uncaught exceptions.
+- OPERATOR ERROR recorded for reproducibility: my first three
+  held clicks this run used y=582 (estimated from the screenshot)
+  and were byte-identical dead — they landed ~19 px ABOVE the
+  Start item. xdotool getwindowgeometry showed the client at
+  (28,42) size 1232x693, exactly as in §V, so the correct root
+  coordinate is (982,601); the click worked on the first try at
+  the correct coordinate. Menu coordinates must be derived from
+  the measured client geometry, not estimated from screenshots.
+  (A mid-run twm restart before the corrected click was
+  unnecessary — twm-from-boot was already sufficient; the only
+  real variable vs the §§K–P dead baseline is WM presence.)
+VERDICT: the Sakura input gate is RENDER-INDEPENDENT. The
+generic win32 recipe is now: q32sup-var + CPU per title
+(max,-avx2 where the AVX2 crash class applies) + **a window
+manager on the game display, always** — on both llvmpipe and
+virgl stacks.
+
+## Y. Majikoi co-factor X — bounded matrix: BMI2 / AVX512BW / BMI1 all EXCLUDED
+
+Method: base `max,-fma` (early crash already removed by -fma, §R
+Test 4/5) minus one candidate, tools/q32sup-var, prefix
+majikoi-v3, WINEDEBUG=+seh. A variant identifies X iff it
+SURVIVES the late fault (site: c000001d, page offset 0x41f,
+register signature esi=00000008 — cf. 0x53C8441F in §R Test 5).
+All three runs died with that same fault:
+- `max,-fma,-bmi2` (logs/var-majikoi-x-bmi2.log): uncaught
+  signal 11, c000001d at ip 0x50ffa41f, esi=00000008. CRASHED.
+- `max,-fma,-avx512bw` (logs/var-majikoi-x-avx512bw.log):
+  uncaught signal 11, c000001d at ip 0x50ffa41f. CRASHED.
+- `max,-fma,-bmi1` (logs/var-majikoi-x-bmi1.log): uncaught
+  signal 11, c000001d at ip 0x518fb41f. CRASHED.
+All died within ~115 s of launch (the faulting JIT path is hit
+at the first WGL context in these runs; wall-clock differs from
+Test 5's ~186 s, the instruction site and register signature
+are identical). Per the bounded mandate the matrix stops here.
+ESTABLISHED: X is none of BMI2, AVX512BW, BMI1 (and per §R/S:
+not FMA, not AVX512F). AVX2 remains necessary (max,-avx2
+survives to first dialog, ~480 s).
+HYPOTHESIS / caveat (recorded honestly): whether a distinct
+co-factor feature exists at all is UNRESOLVED. The "AVX2 + X"
+framing rests on Nehalem,+avx2 surviving — but that run was
+only observed to the splash (~165 s), never through the late
+window, under the pre-correction criterion (§R Test 4
+correction). The data are equally consistent with "the late
+fault needs AVX2 alone". Discriminating that would need a
+Nehalem,+avx2 run carried past ~300 s — outside this bounded
+item; noted as the open lead. The recommended spec is
+unchanged: `max,-avx2`.
